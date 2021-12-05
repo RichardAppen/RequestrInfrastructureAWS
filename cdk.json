@@ -1,5 +1,5 @@
 {
-  "app": "npx ts-node --prefer-ts-exts bin/aws-project.ts",
+  "app": "npx ts-node --prefer-ts-exts bin/requestr-project.ts",
   "context": {
     "@aws-cdk/aws-apigateway:usagePlanKeyOrderInsensitiveId": true,
     "@aws-cdk/core:enableStackNameDuplicates": true,
