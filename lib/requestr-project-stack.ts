@@ -1,8 +1,9 @@
 import * as lambda from '@aws-cdk/aws-lambda';
 import * as apigateway from '@aws-cdk/aws-apigateway';
-import {JsonSchemaType} from '@aws-cdk/aws-apigateway';
 import * as dynamodb from '@aws-cdk/aws-dynamodb';
 import * as cdk from '@aws-cdk/core';
+import * as cognito from '@aws-cdk/aws-cognito'
+import {Mfa} from '@aws-cdk/aws-cognito'
 
 export class RequestrProjectStack extends cdk.Stack {
   constructor(scope: cdk.App, id: string, props?: cdk.StackProps) {
@@ -38,5 +39,46 @@ export class RequestrProjectStack extends cdk.Stack {
               validateRequestBody: false
           }
         });
+
+    const emailPasswordUserPool = new cognito.UserPool(this, "emailPasswordClientUserPool", {
+        userPoolName: "emailPasswordClientUserPool",
+        signInAliases: {
+          username: true,
+            email: true
+        },
+        signInCaseSensitive: false,
+        autoVerify: {email: true},
+        standardAttributes: {
+            fullname: {
+                required: true,
+                mutable: true
+            },
+            email: {
+                required: true,
+                mutable:false
+            }
+        },
+        passwordPolicy: {
+            minLength: 10,
+            requireLowercase: true,
+            requireDigits: true,
+            requireSymbols: true,
+            requireUppercase: true,
+        },
+        selfSignUpEnabled: true,
+        mfa: Mfa.OFF,
+    });
+
+    const emailPasswordAppClient = new cognito.UserPoolClient(this, "emailPasswordAppClient", {
+        userPoolClientName: "emailPasswordAppClient",
+        userPool: emailPasswordUserPool,
+        generateSecret: false,
+        preventUserExistenceErrors: true,
+        authFlows: {
+            userPassword: true,
+            userSrp: true
+        }
+    });
+
   }
 }
