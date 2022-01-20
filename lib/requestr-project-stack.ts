@@ -1,5 +1,6 @@
 import * as lambda from '@aws-cdk/aws-lambda';
 import * as apigateway from '@aws-cdk/aws-apigateway';
+import {JsonSchemaType} from '@aws-cdk/aws-apigateway';
 import * as dynamodb from '@aws-cdk/aws-dynamodb';
 import * as cdk from '@aws-cdk/core';
 import * as cognito from '@aws-cdk/aws-cognito'
@@ -39,6 +40,61 @@ export class RequestrProjectStack extends cdk.Stack {
               validateRequestBody: false
           }
         });
+
+
+
+      const requestrGroupsTable = new dynamodb.Table(this, "RequestrGroupsTable", {
+          partitionKey: { name: "username", type: dynamodb.AttributeType.STRING}
+      });
+
+      const addGroupEntryLambda = new lambda.Function(this, "AddGroupEntryLambda", {
+          runtime: lambda.Runtime.NODEJS_12_X,
+          code: lambda.Code.fromAsset("functions"),
+          handler: "addGroupEntry.handler",
+          environment: {
+              TABLE_NAME: requestrGroupsTable.tableName
+          },
+      });
+
+      const requestrGroupsAPI = new apigateway.RestApi(this, "requestrGroupsAPI", {
+          defaultCorsPreflightOptions: {
+              allowOrigins: apigateway.Cors.ALL_ORIGINS,
+              allowMethods: apigateway.Cors.ALL_METHODS
+          }
+      });
+
+      const groupEntryModel = new apigateway.Model(this, "groupEntryModel-Validator", {
+          restApi: requestrGroupsAPI,
+          contentType: 'application/json',
+          modelName: 'groupEntryModel',
+          schema: {
+              type: JsonSchemaType.OBJECT,
+              properties: {
+                  username: {type: JsonSchemaType.STRING},
+                  groupName: {type: JsonSchemaType.STRING},
+                  groupHash: {type: JsonSchemaType.STRING},
+                  owner: {type: JsonSchemaType.STRING},
+                  usersRole: {type: JsonSchemaType.STRING},
+                  public: {type: JsonSchemaType.BOOLEAN}
+              },
+              required:
+                  ["username", "groupName", "groupHash", "owner", "usersRole", "public"]
+          }})
+
+      requestrGroupsAPI.root
+          .resourceForPath("addGroupEntry")
+          .addMethod("POST", new apigateway.LambdaIntegration(addGroupEntryLambda), {
+              requestValidator: new apigateway.RequestValidator(this, "validator", {
+                  restApi: requestrGroupsAPI,
+                  requestValidatorName: "validator",
+                  validateRequestBody: true
+              }),
+              requestModels: {
+                  "application/json": groupEntryModel
+              },
+          });
+
+      requestrGroupsTable.grantReadWriteData(addGroupEntryLambda);
 
     const emailPasswordUserPool = new cognito.UserPool(this, "emailPasswordClientUserPool", {
         userPoolName: "emailPasswordClientUserPool",
