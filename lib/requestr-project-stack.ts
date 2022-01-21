@@ -44,13 +44,28 @@ export class RequestrProjectStack extends cdk.Stack {
 
 
       const requestrGroupsTable = new dynamodb.Table(this, "RequestrGroupsTable", {
-          partitionKey: { name: "username", type: dynamodb.AttributeType.STRING}
+          partitionKey: { name: "groupHash", type: dynamodb.AttributeType.STRING},
+          sortKey: { name: "username", type: dynamodb.AttributeType.STRING}
       });
+
+      requestrGroupsTable.addGlobalSecondaryIndex({
+          indexName: "RequestrGroupsTableByUsernameIndex",
+          partitionKey: { name: "username", type: dynamodb.AttributeType.STRING}
+      })
 
       const addGroupEntryLambda = new lambda.Function(this, "AddGroupEntryLambda", {
           runtime: lambda.Runtime.NODEJS_12_X,
           code: lambda.Code.fromAsset("functions"),
           handler: "addGroupEntry.handler",
+          environment: {
+              TABLE_NAME: requestrGroupsTable.tableName
+          },
+      });
+
+      const getGroupsByUsernameLambda = new lambda.Function(this, "GetGroupsByUsernameLambda", {
+          runtime: lambda.Runtime.NODEJS_12_X,
+          code: lambda.Code.fromAsset("functions"),
+          handler: "getGroupsByUsername.handler",
           environment: {
               TABLE_NAME: requestrGroupsTable.tableName
           },
@@ -94,7 +109,19 @@ export class RequestrProjectStack extends cdk.Stack {
               },
           });
 
+      requestrGroupsAPI.root.addMethod("GET",  new apigateway.LambdaIntegration(getGroupsByUsernameLambda), {
+          requestParameters: {
+              "method.request.querystring.username": true
+          },
+          requestValidatorOptions: {
+              requestValidatorName: "queryStringValidator",
+              validateRequestParameters: true,
+              validateRequestBody: false
+          }
+      });
+
       requestrGroupsTable.grantReadWriteData(addGroupEntryLambda);
+      requestrGroupsTable.grantReadWriteData(getGroupsByUsernameLambda);
 
     const emailPasswordUserPool = new cognito.UserPool(this, "emailPasswordClientUserPool", {
         userPoolName: "emailPasswordClientUserPool",
