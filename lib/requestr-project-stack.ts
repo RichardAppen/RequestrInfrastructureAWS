@@ -10,39 +10,6 @@ export class RequestrProjectStack extends cdk.Stack {
   constructor(scope: cdk.App, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
-    const table = new dynamodb.Table(this, "Test", {
-      partitionKey: { name: "testTable", type: dynamodb.AttributeType.STRING}
-    });
-
-
-    const testLambda = new lambda.Function(this, "TestLambda", {
-      runtime: lambda.Runtime.NODEJS_12_X,
-      code: lambda.Code.fromAsset("functions"),
-      handler: "function.handler",
-      environment: {
-        TABLE_NAME: table.tableName
-      },
-    });
-
-    table.grantReadWriteData(testLambda);
-
-    const api = new apigateway.RestApi(this, "TestAPI");
-
-    api.root
-        .resourceForPath("testing")
-        .addMethod("GET", new apigateway.LambdaIntegration(testLambda), {
-            requestParameters: {
-              "method.request.querystring.testParam": true
-            },
-          requestValidatorOptions: {
-              requestValidatorName: "queryStringValidator",
-              validateRequestParameters: true,
-              validateRequestBody: false
-          }
-        });
-
-
-
       const requestrGroupsTable = new dynamodb.Table(this, "RequestrGroupsTable", {
           partitionKey: { name: "groupHash", type: dynamodb.AttributeType.STRING},
           sortKey: { name: "username", type: dynamodb.AttributeType.STRING}
@@ -53,19 +20,28 @@ export class RequestrProjectStack extends cdk.Stack {
           partitionKey: { name: "username", type: dynamodb.AttributeType.STRING}
       })
 
-      const addGroupEntryLambda = new lambda.Function(this, "AddGroupEntryLambda", {
+      const addUpdateGroupEntryLambda = new lambda.Function(this, "AddUpdateGroupEntryLambda", {
           runtime: lambda.Runtime.NODEJS_12_X,
           code: lambda.Code.fromAsset("functions"),
-          handler: "addGroupEntry.handler",
+          handler: "addUpdateGroupEntry.handler",
           environment: {
               TABLE_NAME: requestrGroupsTable.tableName
           },
       });
 
-      const getGroupsByUsernameLambda = new lambda.Function(this, "GetGroupsByUsernameLambda", {
+      const getEntriesByUsernameLambda = new lambda.Function(this, "GetEntriesByUsernameLambda", {
           runtime: lambda.Runtime.NODEJS_12_X,
           code: lambda.Code.fromAsset("functions"),
-          handler: "getGroupsByUsername.handler",
+          handler: "getEntriesByUsername.handler",
+          environment: {
+              TABLE_NAME: requestrGroupsTable.tableName
+          },
+      });
+
+      const getEntriesByHashLambda = new lambda.Function(this, "GetEntriesByHashLambda", {
+          runtime: lambda.Runtime.NODEJS_12_X,
+          code: lambda.Code.fromAsset("functions"),
+          handler: "getEntriesByHash.handler",
           environment: {
               TABLE_NAME: requestrGroupsTable.tableName
           },
@@ -97,11 +73,11 @@ export class RequestrProjectStack extends cdk.Stack {
           }})
 
       requestrGroupsAPI.root
-          .resourceForPath("addGroupEntry")
-          .addMethod("POST", new apigateway.LambdaIntegration(addGroupEntryLambda), {
-              requestValidator: new apigateway.RequestValidator(this, "validator", {
+          .resourceForPath("addUpdateGroupEntry")
+          .addMethod("POST", new apigateway.LambdaIntegration(addUpdateGroupEntryLambda), {
+              requestValidator: new apigateway.RequestValidator(this, "groupEntryBodyValidator", {
                   restApi: requestrGroupsAPI,
-                  requestValidatorName: "validator",
+                  requestValidatorName: "bodyValidator-GroupEntry",
                   validateRequestBody: true
               }),
               requestModels: {
@@ -109,19 +85,38 @@ export class RequestrProjectStack extends cdk.Stack {
               },
           });
 
-      requestrGroupsAPI.root.addMethod("GET",  new apigateway.LambdaIntegration(getGroupsByUsernameLambda), {
-          requestParameters: {
-              "method.request.querystring.username": true
-          },
-          requestValidatorOptions: {
-              requestValidatorName: "queryStringValidator",
-              validateRequestParameters: true,
-              validateRequestBody: false
-          }
+      requestrGroupsAPI.root
+          .resourceForPath("getEntriesByUsername")
+          .addMethod("GET",  new apigateway.LambdaIntegration(getEntriesByUsernameLambda), {
+              requestParameters: {
+                  "method.request.querystring.username": true
+              },
+              requestValidator: new apigateway.RequestValidator(this, "usernameValidator", {
+                  restApi: requestrGroupsAPI,
+                  requestValidatorName: "usernameStringCheck",
+                  validateRequestParameters: true,
+                  validateRequestBody: false
+              }),
       });
 
-      requestrGroupsTable.grantReadWriteData(addGroupEntryLambda);
-      requestrGroupsTable.grantReadWriteData(getGroupsByUsernameLambda);
+      requestrGroupsAPI.root
+          .resourceForPath("getEntriesByHash")
+          .addMethod("GET",  new apigateway.LambdaIntegration(getEntriesByHashLambda), {
+              requestParameters: {
+                  "method.request.querystring.groupHash": true
+              },
+              requestValidator: new apigateway.RequestValidator(this, "hashValidator", {
+                  restApi: requestrGroupsAPI,
+                  requestValidatorName: "hashStringCheck",
+                  validateRequestParameters: true,
+                  validateRequestBody: false
+              }),
+
+          });
+
+      requestrGroupsTable.grantReadWriteData(addUpdateGroupEntryLambda);
+      requestrGroupsTable.grantReadWriteData(getEntriesByUsernameLambda);
+      requestrGroupsTable.grantReadWriteData(getEntriesByHashLambda)
 
     const emailPasswordUserPool = new cognito.UserPool(this, "emailPasswordClientUserPool", {
         userPoolName: "emailPasswordClientUserPool",
@@ -162,6 +157,5 @@ export class RequestrProjectStack extends cdk.Stack {
             userSrp: true
         }
     });
-
   }
 }
