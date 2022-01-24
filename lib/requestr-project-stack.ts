@@ -47,6 +47,15 @@ export class RequestrProjectStack extends cdk.Stack {
           },
       });
 
+      const deleteEntryByHashAndUsernameLambda = new lambda.Function(this, "DeleteEntryByHashAndUsernameLambda", {
+          runtime: lambda.Runtime.NODEJS_12_X,
+          code: lambda.Code.fromAsset("functions"),
+          handler: "deleteEntryByHashAndUsername.handler",
+          environment: {
+              TABLE_NAME: requestrGroupsTable.tableName
+          },
+      });
+
       const requestrGroupsAPI = new apigateway.RestApi(this, "requestrGroupsAPI", {
           defaultCorsPreflightOptions: {
               allowOrigins: apigateway.Cors.ALL_ORIGINS,
@@ -114,9 +123,26 @@ export class RequestrProjectStack extends cdk.Stack {
 
           });
 
+      requestrGroupsAPI.root
+          .resourceForPath("deleteEntryByHashAndUsername")
+          .addMethod("DELETE",  new apigateway.LambdaIntegration(deleteEntryByHashAndUsernameLambda), {
+              requestParameters: {
+                  "method.request.querystring.groupHash": true,
+                  "method.request.querystring.username": true
+              },
+              requestValidator: new apigateway.RequestValidator(this, "deleteValidator", {
+                  restApi: requestrGroupsAPI,
+                  requestValidatorName: "usernameAndHashStringCheck",
+                  validateRequestParameters: true,
+                  validateRequestBody: false
+              }),
+
+          });
+
       requestrGroupsTable.grantReadWriteData(addUpdateGroupEntryLambda);
       requestrGroupsTable.grantReadWriteData(getEntriesByUsernameLambda);
-      requestrGroupsTable.grantReadWriteData(getEntriesByHashLambda)
+      requestrGroupsTable.grantReadWriteData(getEntriesByHashLambda);
+      requestrGroupsTable.grantReadWriteData(deleteEntryByHashAndUsernameLambda);
 
     const emailPasswordUserPool = new cognito.UserPool(this, "emailPasswordClientUserPool", {
         userPoolName: "emailPasswordClientUserPool",
