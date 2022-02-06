@@ -2,8 +2,11 @@ import * as lambda from '@aws-cdk/aws-lambda';
 import * as apigateway from '@aws-cdk/aws-apigateway';
 import {JsonSchemaType} from '@aws-cdk/aws-apigateway';
 import * as dynamodb from '@aws-cdk/aws-dynamodb';
+import * as sfn from '@aws-cdk/aws-stepfunctions'
+import * as tasks from '@aws-cdk/aws-stepfunctions-tasks'
 import * as cdk from '@aws-cdk/core';
 import * as cognito from '@aws-cdk/aws-cognito'
+import * as iam from '@aws-cdk/aws-iam'
 import {Mfa} from '@aws-cdk/aws-cognito'
 
 export class RequestrProjectStack extends cdk.Stack {
@@ -183,5 +186,138 @@ export class RequestrProjectStack extends cdk.Stack {
             userSrp: true
         }
     });
+
+
+
+
+
+
+
+
+      const stepFunctionRoleAllAllowed = new iam.PolicyStatement({
+          effect: iam.Effect.ALLOW,
+          actions: ['states:*'],
+          resources: ["*"]
+
+      })
+
+      const waitForTicketInteractionLambda = new lambda.Function(this, "waitForTicketInteractionLambda", {
+          runtime: lambda.Runtime.NODEJS_12_X,
+          code: lambda.Code.fromAsset("functions"),
+          handler: "waitForTicketInteraction.handler",
+      });
+
+      const interactWithTicketLambda = new lambda.Function(this, "interactWithTicketLambda", {
+          runtime: lambda.Runtime.NODEJS_12_X,
+          code: lambda.Code.fromAsset("functions"),
+          handler: "interactWithTicket.handler"
+      });
+        interactWithTicketLambda.addToRolePolicy(stepFunctionRoleAllAllowed)
+
+      const updateTicketLambda = new lambda.Function(this, "updateTicketLambda", {
+          runtime: lambda.Runtime.NODEJS_12_X,
+          code: lambda.Code.fromAsset("functions"),
+          handler: "updateTicket.handler"
+      });
+
+      const getTicketExecutionsByStateMachineARNLambda = new lambda.Function(this, "getTicketExecutionsByStateMachineARNLambda", {
+          runtime: lambda.Runtime.NODEJS_12_X,
+          code: lambda.Code.fromAsset("functions"),
+          handler: "getTicketExecutionsByStateMachineARN.handler",
+          timeout: cdk.Duration.seconds(60)
+      });
+      getTicketExecutionsByStateMachineARNLambda.addToRolePolicy(stepFunctionRoleAllAllowed)
+
+
+
+      const waitForMainInteractionState = new tasks.LambdaInvoke(this, "waitForMainInteractionState", {
+          lambdaFunction: waitForTicketInteractionLambda,
+          payload: sfn.TaskInput.fromObject({
+              token: sfn.JsonPath.taskToken,
+              request: sfn.JsonPath.entirePayload
+          }),
+          integrationPattern: sfn.IntegrationPattern.WAIT_FOR_TASK_TOKEN,
+          resultPath: '$.choiceStateResult'
+      })
+
+      const waitToBeArchivedState = new tasks.LambdaInvoke(this, "waitToBeArchivedState", {
+          lambdaFunction: waitForTicketInteractionLambda,
+          payload: sfn.TaskInput.fromObject({
+              token: sfn.JsonPath.taskToken,
+              request: sfn.JsonPath.entirePayload
+          }),
+          integrationPattern: sfn.IntegrationPattern.WAIT_FOR_TASK_TOKEN,
+          resultPath: sfn.JsonPath.DISCARD
+      })
+
+      const approvedState = new tasks.LambdaInvoke(this, "approvedState", {
+          lambdaFunction: updateTicketLambda,
+          resultSelector: {
+              "request.$": "$.Payload.body"
+          },
+          outputPath: "$.request"
+      }).next(waitToBeArchivedState)
+
+      const deniedState = new tasks.LambdaInvoke(this, "deniedState", {
+          lambdaFunction: updateTicketLambda,
+          resultSelector: {
+              "request.$": "$.Payload.body"
+          },
+          outputPath: "$.request"
+      }).next(waitToBeArchivedState)
+
+      const processCommentState = new tasks.LambdaInvoke(this, "processCommentState", {
+          lambdaFunction: updateTicketLambda,
+          outputPath: '$.Payload.body'
+      }).next(waitForMainInteractionState)
+
+      const ticketProcessingSM = new sfn.StateMachine(this, "ticketProcessingStateMachine", {
+          definition: waitForMainInteractionState.next(
+              new sfn.Choice(this, "approveDenyOrCommentChoice")
+                  .when(sfn.Condition.stringEquals('$.choiceStateResult.updateType', 'Approved'), approvedState)
+                  .when(sfn.Condition.stringEquals('$.choiceStateResult.updateType', 'Denied'), deniedState)
+                  .otherwise(processCommentState)
+          )
+      })
+
+      const requestrTicketsAPI = new apigateway.RestApi(this, "requestrTicketsAPI", {
+          defaultCorsPreflightOptions: {
+              allowOrigins: apigateway.Cors.ALL_ORIGINS,
+              allowMethods: apigateway.Cors.ALL_METHODS
+          }
+      });
+
+      requestrTicketsAPI.root
+          .resourceForPath("interactWithTicket")
+          .addMethod("POST", new apigateway.LambdaIntegration(interactWithTicketLambda), {
+              requestParameters: {
+                  "method.request.querystring.taskToken": true,
+                  "method.request.querystring.updateType": true,
+                  "method.request.querystring.comment": true
+              },
+              requestValidator: new apigateway.RequestValidator(this, "interactWithTicketValidator", {
+                  restApi: requestrTicketsAPI,
+                  requestValidatorName: "interactWithTicketCheck",
+                  validateRequestParameters: true,
+                  validateRequestBody: false
+              })
+          });
+
+
+      requestrTicketsAPI.root
+          .resourceForPath("getTicketExecutionsByStateMachineARN")
+          .addMethod("GET",  new apigateway.LambdaIntegration(getTicketExecutionsByStateMachineARNLambda), {
+              requestParameters: {
+                  "method.request.querystring.stateMachineARN": true,
+                  "method.request.querystring.statusFilter": true
+              },
+              requestValidator: new apigateway.RequestValidator(this, "filterAndARNValidator", {
+                  restApi: requestrTicketsAPI,
+                  requestValidatorName: "filterAndARNStringCheck",
+                  validateRequestParameters: true,
+                  validateRequestBody: false
+              }),
+          });
+
   }
 }
