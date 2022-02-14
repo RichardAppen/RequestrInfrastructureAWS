@@ -10,7 +10,7 @@ exports.handler = function (event, context, callback) {
 
     const comments = event.comments
     const commentToAdd = event.choiceStateResult.comment
-    comments.push(commentToAdd)
+    comments.unshift(commentToAdd)
     event.comments = comments
 
     delete event['choiceStateResult']

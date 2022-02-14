@@ -305,7 +305,7 @@ You can ask for running or succeeded executions.
         "date": string,
         "status": string
       },
-      "comments": [string]
+      "comments": string[]
     },
     "token": string
   }
@@ -323,7 +323,7 @@ You can ask for running or succeeded executions.
       "date": string,
       "status": string
     },
-    "comments": [string]
+    "comments": string[][]
   }
 ]
 ````
@@ -361,7 +361,7 @@ You cannot comment on approved, denied, or archived tickets.
 {
     "taskToken" : string,
     "updateType" : string,
-    "comment" : [string]
+    "comment" : string
 }
 ````
 
@@ -373,7 +373,7 @@ You cannot comment on approved, denied, or archived tickets.
   - What kind of interaction with the ticket is occurring.
   - Valid Values: ```` Approved | Denied | Comment | Archived ````
 - comment
-  - An array of strings expected in the format of: ["Commenter", "Comment Date", "Actual Comment"]
+  - A string representing a JSON array of strings expected in the format of: ["Commenter", "Comment Date", "Actual Comment"]
   - For the case that 'updateType' = 'Comment', this is the comment that is added to the ticket
   - For the case that 'updateType' = 'Approved' or 'Denied', this comment is still added to the ticket, and should be an automated comment created for informative purposes
   - For the case that 'updateType' = 'Archived', this comment is discarded.

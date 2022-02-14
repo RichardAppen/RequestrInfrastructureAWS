@@ -36,7 +36,8 @@ export class RequestrProjectStack extends cdk.Stack {
       const interactWithTicketLambda = new lambda.Function(this, "interactWithTicketLambda", {
           runtime: lambda.Runtime.NODEJS_12_X,
           code: lambda.Code.fromAsset("functions"),
-          handler: "interactWithTicket.handler"
+          handler: "interactWithTicket.handler",
+          timeout: cdk.Duration.seconds(60)
       });
       interactWithTicketLambda.addToRolePolicy(stepFunctionRoleAllAllowed)
 

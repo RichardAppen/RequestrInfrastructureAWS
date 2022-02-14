@@ -5,17 +5,19 @@ exports.handler = function (event, context, callback) {
     const stepfunctions = new AWS.StepFunctions();
     const taskToken = event["queryStringParameters"]['taskToken']
 
-    stepfunctions.sendTaskSuccess({
+    const interactWithTicketPromise = stepfunctions.sendTaskSuccess({
         output: JSON.stringify({updateType: event["queryStringParameters"]['updateType'], comment: JSON.parse(event["queryStringParameters"]['comment'])}),
         taskToken: taskToken
-    }, (error, data) => {
-        if (error) {
-            console.log(error)
-            callback(error.message)
-        } else {
-            console.log(data)
-            callback(data)
-        }
-        return
+    }).promise()
+
+    interactWithTicketPromise.then((data) => {
+        callback(null, {
+            statusCode: 200,
+            headers: {
+                "Access-Control-Allow-Headers" : "*",
+                "Access-Control-Allow-Origin" : "*"
+            },
+            body: null
+        })
     })
 };
