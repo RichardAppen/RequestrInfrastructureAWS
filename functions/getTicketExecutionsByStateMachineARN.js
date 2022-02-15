@@ -23,7 +23,8 @@ exports.handler = function (event, context, callback) {
         listOfExecutions.executions.forEach((execution) => {
             // For each execution promise a JSON representation of that executions history
             const executionHistoryPromise = stepfunctions.getExecutionHistory({
-                executionArn: execution.executionArn
+                executionArn: execution.executionArn,
+                reverseOrder: true
             }).promise()
             // Put this promise in a promise array
             promiseArray.push(executionHistoryPromise)
@@ -35,17 +36,17 @@ exports.handler = function (event, context, callback) {
             // Filter out to just have an array with the most recent event in the execution history (this is the only event that currently matters for a ticket)
             allExecutionHistories.forEach((executionHistory) => {
                 console.log("pushing event: ")
-                console.log(executionHistory.events[executionHistory.events.length - 1])
+                console.log(executionHistory.events[0])
                 // 'TaskSubmitted' will be present on every ticket execution. It WILL be the most recent event in a still Running (Pending or awaiting archival) ticket
                 if (statusOfExecutions === "RUNNING") {
-                    const mostRecentExecutionEvent = executionHistory.events[executionHistory.events.length - 1]
+                    const mostRecentExecutionEvent = executionHistory.events[0]
                     const outputOfMostRecentEventAsJSON = JSON.parse(mostRecentExecutionEvent.taskSubmittedEventDetails.output)
                     const ticketDataFromMostRecentEvent = outputOfMostRecentEventAsJSON.Payload.body
                     arrayOfExecutionsFinalEvents.push(ticketDataFromMostRecentEvent)
                 }
                 // 'ExecutionSucceeded' will be the most recent event of a ticket that has been archived and thus the execution is no longer running (i.e. execution will have succeeded)
                 else if (statusOfExecutions === "SUCCEEDED") {
-                    const mostRecentExecutionEvent = executionHistory.events[executionHistory.events.length - 1]
+                    const mostRecentExecutionEvent = executionHistory.events[0]
                     // In the case of 'ExecutionSucceeded, this will already be the ticketData, so no need to parse further
                     const outputOfMostRecentEventAsJSON = JSON.parse(mostRecentExecutionEvent.executionSucceededEventDetails.output)
                     arrayOfExecutionsFinalEvents.push(outputOfMostRecentEventAsJSON)
