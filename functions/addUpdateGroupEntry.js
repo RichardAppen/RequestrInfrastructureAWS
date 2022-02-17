@@ -27,9 +27,12 @@ exports.handler = function (event, context, callback) {
             // If the dynamoDB query shows that this group already as zero entries, then this is a new group and we need to build a state machine for it
             if (queryResult.Items.length === 0) {
                 console.log("Group doesn't already exists so we can create the state machine")
+                // Can't have spaces in State Machine names, so replace them with underscores. Make all other underscore, double underscores to prevent a name collision
+                let groupNameDoubleUnderscoreNoSpace = entry.groupName.replace(/_/g, "__")
+                groupNameDoubleUnderscoreNoSpace = groupNameDoubleUnderscoreNoSpace.replace(/ /g, "_")
                 const createStateMachinePromise = stepfunctions.createStateMachine({
                     definition: statemachine_definition,
-                    name: "StateMachineForGroup_" + entry.groupName + "_CreatedBy_" + entry.owner,
+                    name: "StateMachineForGroup_" + groupNameDoubleUnderscoreNoSpace + "_CreatedBy_" + entry.owner,
                     roleArn: model_roleARN
                 }).promise()
 
