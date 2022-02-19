@@ -6,9 +6,15 @@ import * as sfn from '@aws-cdk/aws-stepfunctions'
 import * as tasks from '@aws-cdk/aws-stepfunctions-tasks'
 import * as cdk from '@aws-cdk/core';
 import * as cognito from '@aws-cdk/aws-cognito'
+import {CfnUserPool, Mfa} from '@aws-cdk/aws-cognito'
 import * as iam from '@aws-cdk/aws-iam'
-import {Mfa} from '@aws-cdk/aws-cognito'
-import {CfnStateMachine} from "aws-cdk-lib/aws-stepfunctions";
+import {Effect} from '@aws-cdk/aws-iam'
+import * as sns from '@aws-cdk/aws-sns'
+import {SubscriptionProtocol} from '@aws-cdk/aws-sns'
+import * as ses from '@aws-cdk/aws-ses'
+import * as sesActions from '@aws-cdk/aws-ses-actions'
+import * as custom from '@aws-cdk/custom-resources'
+import * as subscriptions from '@aws-cdk/aws-sns-subscriptions'
 
 export class RequestrProjectStack extends cdk.Stack {
   constructor(scope: cdk.App, id: string, props?: cdk.StackProps) {
@@ -25,6 +31,13 @@ export class RequestrProjectStack extends cdk.Stack {
           effect: iam.Effect.ALLOW,
           actions: ['iam:passRole'],
           resources: ["*"]
+      })
+
+      const snsPublish = new iam.PolicyStatement({
+          effect: iam.Effect.ALLOW,
+          actions: ['sns:Publish'],
+          resources: ["*"]
+
       })
 
       const waitForTicketInteractionLambda = new lambda.Function(this, "waitForTicketInteractionLambda", {
@@ -364,6 +377,15 @@ export class RequestrProjectStack extends cdk.Stack {
         mfa: Mfa.OFF,
     });
 
+    // L1 cast
+      const cfnEmailPasswordUserPool = emailPasswordUserPool.node.defaultChild as CfnUserPool
+      cfnEmailPasswordUserPool.emailConfiguration = {
+          sourceArn: "arn:aws:ses:us-east-1:182624231406:identity/requestr.org",
+          emailSendingAccount: "DEVELOPER",
+          from: "Requestr Automated System <no-reply@requestr.org>",
+          replyToEmailAddress: "support@requestr.org"
+      }
+
     const emailPasswordAppClient = new cognito.UserPoolClient(this, "emailPasswordAppClient", {
         userPoolClientName: "emailPasswordAppClient",
         userPool: emailPasswordUserPool,
@@ -374,5 +396,74 @@ export class RequestrProjectStack extends cdk.Stack {
             userSrp: true
         }
     });
+
+
+
+
+
+
+    const virtualEmailServerForDomainTopic = new sns.Topic(this, 'virtualEmailServerForDomainTopic', {
+        topicName: "virtualEmailServerForDomain"
+    })
+
+      const sesAllowSetSendRole = new iam.PolicyStatement({
+          effect: Effect.ALLOW,
+          actions: ['ses:SendEmail', 'ses:SendRawEmail'],
+          resources: ['*']
+      })
+
+      const processAndSendIncomingEmailLambda = new lambda.Function(this, "processAndSendIncomingEmailLambda", {
+          runtime: lambda.Runtime.NODEJS_12_X,
+          code: lambda.Code.fromAsset("functions"),
+          handler: "processAndSendIncomingEmail.handler",
+          timeout: cdk.Duration.seconds(60)
+      });
+    processAndSendIncomingEmailLambda.addToRolePolicy(sesAllowSetSendRole)
+
+      virtualEmailServerForDomainTopic.addSubscription(new subscriptions.LambdaSubscription(processAndSendIncomingEmailLambda))
+
+      const virtualEmailServerForDomainRuleSet = new ses.ReceiptRuleSet(this, 'virtualEmailServerForDomainRuleSet', {
+          receiptRuleSetName: 'virtualEmailServerForDomainRuleSet',
+          rules: [
+              {
+                  recipients: ['support@requestr.org'],
+                  actions: [
+                      new sesActions.Sns({
+                          topic: virtualEmailServerForDomainTopic
+                      })
+                  ]
+              }
+          ]
+      })
+
+      //Make previous RuleSet the 'active' ruleset with AWS Custom Resource
+      const setActiveAWSSDKCall: custom.AwsSdkCall = {
+        service: 'SES',
+          action: 'setActiveReceiptRuleSet',
+          physicalResourceId: custom.PhysicalResourceId.of('DefaultSesCustomResource'),
+          parameters: {
+            RuleSetName: virtualEmailServerForDomainRuleSet.receiptRuleSetName
+          }
+      }
+
+      const sesAllowSetActiveRuleSetRole = new iam.PolicyStatement({
+          effect: Effect.ALLOW,
+          actions: ['ses:SetActiveReceiptRuleSet'],
+          resources: ['*']
+      })
+
+      const customResourceForSetActiveCall = new custom.AwsCustomResource(this, 'customResourceForSetActiveCall', {
+          onCreate: setActiveAWSSDKCall,
+          onUpdate: setActiveAWSSDKCall,
+          policy: custom.AwsCustomResourcePolicy.fromStatements([
+              sesAllowSetActiveRuleSetRole
+          ]),
+          timeout: cdk.Duration.seconds(60)
+      })
+
+
+
+
+
   }
 }
