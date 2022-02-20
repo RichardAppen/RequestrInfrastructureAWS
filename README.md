@@ -211,7 +211,9 @@ another DynamoDB table.
 #### createTicket
 Create a new ticket in the given group by starting a new execution of the group's state machine.
 The ticket will automatically go into the first state which waits for interaction. The next possible states
-are the approved state, denied state, or comment state.
+are the approved state, denied state, or comment state. When a ticket is created the DynamoDB table is queried for all members
+of the group that are of rank 'Admin' or 'Owner'. It then calls on AWS Cognito to get the emails of these users. It will then
+send an email using AWS SES to each of these emails, notifying them that a new ticket was created in their group.
 
 ###### Request Syntax
 - POST method

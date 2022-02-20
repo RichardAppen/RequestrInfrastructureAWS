@@ -10,7 +10,6 @@ import {CfnUserPool, Mfa} from '@aws-cdk/aws-cognito'
 import * as iam from '@aws-cdk/aws-iam'
 import {Effect} from '@aws-cdk/aws-iam'
 import * as sns from '@aws-cdk/aws-sns'
-import {SubscriptionProtocol} from '@aws-cdk/aws-sns'
 import * as ses from '@aws-cdk/aws-ses'
 import * as sesActions from '@aws-cdk/aws-ses-actions'
 import * as custom from '@aws-cdk/custom-resources'
@@ -19,6 +18,70 @@ import * as subscriptions from '@aws-cdk/aws-sns-subscriptions'
 export class RequestrProjectStack extends cdk.Stack {
   constructor(scope: cdk.App, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
+
+      const requestrGroupsTable = new dynamodb.Table(this, "RequestrGroupsTable", {
+          partitionKey: { name: "groupHash", type: dynamodb.AttributeType.STRING},
+          sortKey: { name: "username", type: dynamodb.AttributeType.STRING}
+      });
+
+      requestrGroupsTable.addGlobalSecondaryIndex({
+          indexName: "RequestrGroupsTableByUsernameIndex",
+          partitionKey: { name: "username", type: dynamodb.AttributeType.STRING}
+      })
+
+      requestrGroupsTable.addGlobalSecondaryIndex({
+          indexName: "RequestrGroupsTableByStateMachineARNIndex",
+          partitionKey: { name: "stateMachineARN", type: dynamodb.AttributeType.STRING}
+      })
+
+      const emailPasswordUserPool = new cognito.UserPool(this, "emailPasswordClientUserPool", {
+          userPoolName: "emailPasswordClientUserPool",
+          signInAliases: {
+              username: true,
+              email: true
+          },
+          signInCaseSensitive: false,
+          autoVerify: {email: true},
+          standardAttributes: {
+              fullname: {
+                  required: true,
+                  mutable: true
+              },
+              email: {
+                  required: true,
+                  mutable:false
+              }
+          },
+          passwordPolicy: {
+              minLength: 10,
+              requireLowercase: true,
+              requireDigits: true,
+              requireSymbols: true,
+              requireUppercase: true,
+          },
+          selfSignUpEnabled: true,
+          mfa: Mfa.OFF,
+      });
+
+      // L1 cast
+      const cfnEmailPasswordUserPool = emailPasswordUserPool.node.defaultChild as CfnUserPool
+      cfnEmailPasswordUserPool.emailConfiguration = {
+          sourceArn: "arn:aws:ses:us-east-1:182624231406:identity/requestr.org",
+          emailSendingAccount: "DEVELOPER",
+          from: "Requestr Automated System <no-reply@requestr.org>",
+          replyToEmailAddress: "support@requestr.org"
+      }
+
+      const emailPasswordAppClient = new cognito.UserPoolClient(this, "emailPasswordAppClient", {
+          userPoolClientName: "emailPasswordAppClient",
+          userPool: emailPasswordUserPool,
+          generateSecret: false,
+          preventUserExistenceErrors: true,
+          authFlows: {
+              userPassword: true,
+              userSrp: true
+          }
+      });
 
       const stepFunctionRoleAllAllowed = new iam.PolicyStatement({
           effect: iam.Effect.ALLOW,
@@ -38,6 +101,12 @@ export class RequestrProjectStack extends cdk.Stack {
           actions: ['sns:Publish'],
           resources: ["*"]
 
+      })
+
+      const createTicketPolicy = new iam.PolicyStatement({
+          effect: iam.Effect.ALLOW,
+          actions: ['cognito-idp:AdminGetUser', 'ses:SendEmail', 'ses:SendRawEmail'],
+          resources: ["*"]
       })
 
       const waitForTicketInteractionLambda = new lambda.Function(this, "waitForTicketInteractionLambda", {
@@ -72,9 +141,15 @@ export class RequestrProjectStack extends cdk.Stack {
           runtime: lambda.Runtime.NODEJS_12_X,
           code: lambda.Code.fromAsset("functions"),
           handler: "createTicket.handler",
-          timeout: cdk.Duration.seconds(60)
+          timeout: cdk.Duration.seconds(60),
+          environment: {
+              TABLE_NAME: requestrGroupsTable.tableName,
+              USER_POOL_ID: emailPasswordUserPool.userPoolId
+          },
       });
       createTicketLambda.addToRolePolicy(stepFunctionRoleAllAllowed)
+      createTicketLambda.addToRolePolicy(createTicketPolicy)
+      requestrGroupsTable.grantReadWriteData(createTicketLambda)
 
 
 
@@ -210,15 +285,8 @@ export class RequestrProjectStack extends cdk.Stack {
 
 
 
-      const requestrGroupsTable = new dynamodb.Table(this, "RequestrGroupsTable", {
-          partitionKey: { name: "groupHash", type: dynamodb.AttributeType.STRING},
-          sortKey: { name: "username", type: dynamodb.AttributeType.STRING}
-      });
 
-      requestrGroupsTable.addGlobalSecondaryIndex({
-          indexName: "RequestrGroupsTableByUsernameIndex",
-          partitionKey: { name: "username", type: dynamodb.AttributeType.STRING}
-      })
+
 
       const addUpdateGroupEntryLambda = new lambda.Function(this, "AddUpdateGroupEntryLambda", {
           runtime: lambda.Runtime.NODEJS_12_X,
@@ -347,55 +415,6 @@ export class RequestrProjectStack extends cdk.Stack {
       requestrGroupsTable.grantReadWriteData(getEntriesByUsernameLambda);
       requestrGroupsTable.grantReadWriteData(getEntriesByHashLambda);
       requestrGroupsTable.grantReadWriteData(deleteEntryByHashAndUsernameLambda);
-
-    const emailPasswordUserPool = new cognito.UserPool(this, "emailPasswordClientUserPool", {
-        userPoolName: "emailPasswordClientUserPool",
-        signInAliases: {
-          username: true,
-            email: true
-        },
-        signInCaseSensitive: false,
-        autoVerify: {email: true},
-        standardAttributes: {
-            fullname: {
-                required: true,
-                mutable: true
-            },
-            email: {
-                required: true,
-                mutable:false
-            }
-        },
-        passwordPolicy: {
-            minLength: 10,
-            requireLowercase: true,
-            requireDigits: true,
-            requireSymbols: true,
-            requireUppercase: true,
-        },
-        selfSignUpEnabled: true,
-        mfa: Mfa.OFF,
-    });
-
-    // L1 cast
-      const cfnEmailPasswordUserPool = emailPasswordUserPool.node.defaultChild as CfnUserPool
-      cfnEmailPasswordUserPool.emailConfiguration = {
-          sourceArn: "arn:aws:ses:us-east-1:182624231406:identity/requestr.org",
-          emailSendingAccount: "DEVELOPER",
-          from: "Requestr Automated System <no-reply@requestr.org>",
-          replyToEmailAddress: "support@requestr.org"
-      }
-
-    const emailPasswordAppClient = new cognito.UserPoolClient(this, "emailPasswordAppClient", {
-        userPoolClientName: "emailPasswordAppClient",
-        userPool: emailPasswordUserPool,
-        generateSecret: false,
-        preventUserExistenceErrors: true,
-        authFlows: {
-            userPassword: true,
-            userSrp: true
-        }
-    });
 
 
 
