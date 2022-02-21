@@ -3,6 +3,9 @@ const AWS = require('aws-sdk')
 exports.handler = function (event, context, callback) {
     const stepfunctions = new AWS.StepFunctions();
     const statusOfExecutions = event["queryStringParameters"]['statusFilter']
+    const username = event["queryStringParameters"]['username']
+    const usersRole = event["queryStringParameters"]['usersRole']
+    const groupType = event["queryStringParameters"]['groupType']
 
     console.log("Headed into listExecutions() method")
 
@@ -32,7 +35,7 @@ exports.handler = function (event, context, callback) {
 
         // Using Promise.all we can get a list of every execution history (one history for each execution) in the state machine
         Promise.all(promiseArray).then((allExecutionHistories) => {
-            const arrayOfExecutionsFinalEvents = []
+            let arrayOfExecutionsFinalEvents = []
             // Filter out to just have an array with the most recent event in the execution history (this is the only event that currently matters for a ticket)
             allExecutionHistories.forEach((executionHistory) => {
                 console.log("pushing event: ")
@@ -52,6 +55,34 @@ exports.handler = function (event, context, callback) {
                     arrayOfExecutionsFinalEvents.push(outputOfMostRecentEventAsJSON)
                 }
             })
+
+            // process final result if the group is private
+            if (groupType === 'private') {
+                // Case of active tickets
+                if (statusOfExecutions === "RUNNING") {
+                    if (usersRole === 'Member') {
+                        let filteredTickets = []
+                        arrayOfExecutionsFinalEvents.forEach((execution) => {
+                            if (execution.request.ticketData.requestor === username) {
+                                filteredTickets.push(execution)
+                            }
+                        })
+                        arrayOfExecutionsFinalEvents = filteredTickets
+                    }
+
+                // Case of archived tickets
+                } else if (statusOfExecutions === "SUCCEEDED") {
+                    if (usersRole === 'Member') {
+                        let filteredTickets = []
+                        arrayOfExecutionsFinalEvents.forEach((ticket) => {
+                            if (ticket.ticketData.requestor === username) {
+                                filteredTickets.push(ticket)
+                            }
+                        })
+                        arrayOfExecutionsFinalEvents = filteredTickets
+                    }
+                }
+            }
 
             // finally, callback the lambda with the list of each execution history's final event
             callback(null, {

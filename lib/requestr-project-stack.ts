@@ -235,7 +235,10 @@ export class RequestrProjectStack extends cdk.Stack {
           .addMethod("GET",  new apigateway.LambdaIntegration(getTicketExecutionsByStateMachineARNLambda), {
               requestParameters: {
                   "method.request.querystring.stateMachineARN": true,
-                  "method.request.querystring.statusFilter": true
+                  "method.request.querystring.statusFilter": true,
+                  "method.request.querystring.groupType": true,
+                  "method.request.querystring.username": true,
+                  "method.request.querystring.usersRole": true
               },
               requestValidator: new apigateway.RequestValidator(this, "filterAndARNValidator", {
                   restApi: requestrTicketsAPI,

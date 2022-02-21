@@ -271,7 +271,10 @@ string
 
 #### getTicketExecutionsByStateMachineARN
 Get all the tickets within a given group by providing the stateMachineARN of the state machine associated with the group.
-You can ask for running or succeeded executions. 
+You can ask for running (active tickets) or succeeded (archived tickets) executions. You must also provide the username, their role
+in the group, and whether the group is public or private so the request can do filtering on the final array of tickets it returns,
+to make sure that if the group is private, and the user making the request is a Member, the user only recieves tickets they are 
+allowed to receive on the client side.
 
 ###### Request Syntax
 - GET method
@@ -280,7 +283,10 @@ You can ask for running or succeeded executions.
 ````json
 {
     "stateMachineARN" : string,
-    "statusFilter" : string
+    "statusFilter" : string,
+    "username" : string,
+    "usersRole" : string,
+    "groupType" : string
 }
 ````
 
